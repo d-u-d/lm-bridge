@@ -15,6 +15,10 @@ func Run(args []string) {
 		runQuery(args[1:])
 	case "agent":
 		runAgent(args[1:])
+	case "review":
+		runReview(args[1:])
+	case "explain":
+		runExplain(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		printUsage()
@@ -26,10 +30,11 @@ func printUsage() {
 	fmt.Fprint(os.Stderr, `lm-bridge — local LLM helper for Claude Code
 
 Usage:
-  lm-bridge                              open dashboard
-  lm-bridge query [--think] [--stream] <prompt>   single prompt (stdin also accepted)
-  lm-bridge agent [--think] [--dir DIR] <task>
-                                         agentic loop with file tools
+  lm-bridge                                        open dashboard
+  lm-bridge query   [--think] [--stream] <prompt>  single prompt (stdin accepted)
+  lm-bridge agent   [--think] [--dir DIR] <task>   agentic loop with file tools
+  lm-bridge review  [--think] [--staged]           review git diff before commit
+  lm-bridge explain [--think] <file>               explain a file (stdin accepted)
 
 `)
 }
