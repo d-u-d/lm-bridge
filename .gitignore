@@ -1,0 +1,10 @@
+build/bin
+node_modules
+frontend/dist
+frontend/node_modules
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+wailsjs/
+lm-bridge-brief.md
