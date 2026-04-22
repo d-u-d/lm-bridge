@@ -1,5 +1,7 @@
 # lm-bridge
 
+[English](README.md) | [Русский](README.ru.md)
+
 A macOS menubar app + CLI that connects [Claude Code](https://claude.ai/claude-code) to a local LLM running in [LM Studio](https://lmstudio.ai).
 
 Offload mechanical tasks (code search, boilerplate generation, transformations) to a local model — keeping Claude's context free for reasoning.
@@ -26,7 +28,7 @@ Offload mechanical tasks (code search, boilerplate generation, transformations) 
 
 ### Download
 
-Grab the latest `.app` from [Releases](https://github.com/alexeyzapolin/lm-bridge/releases).
+Grab the latest `.app` from [Releases](https://github.com/d-u-d/lm-bridge/releases).
 
 ### Build from source
 
@@ -34,7 +36,7 @@ Grab the latest `.app` from [Releases](https://github.com/alexeyzapolin/lm-bridg
 # Prerequisites: Go 1.22+, Wails v2, Node.js 18+
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
-git clone https://github.com/alexeyzapolin/lm-bridge
+git clone https://github.com/d-u-d/lm-bridge
 cd lm-bridge
 ./build.sh
 ```
