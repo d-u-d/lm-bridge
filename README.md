@@ -22,7 +22,7 @@ Offload mechanical tasks (code search, boilerplate generation, transformations) 
 
 - macOS (Apple Silicon recommended)
 - [LM Studio](https://lmstudio.ai) running locally
-- A loaded model (tested with Qwen3-Coder-30B-A3B)
+- A loaded model (tested with Qwen3.6-35B-A3B)
 
 ## Installation
 
