@@ -7,6 +7,8 @@ set -e
 
 cd "$(dirname "$0")"
 
+export PATH="$PATH:$(go env GOPATH)/bin"
+
 if [ -n "$1" ]; then
   VERSION="$1"
 elif git rev-parse --git-dir > /dev/null 2>&1; then

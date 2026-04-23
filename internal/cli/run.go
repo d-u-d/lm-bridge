@@ -19,6 +19,8 @@ func Run(args []string) {
 		runReview(args[1:])
 	case "explain":
 		runExplain(args[1:])
+	case "status":
+		runStatus(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		printUsage()
@@ -27,10 +29,11 @@ func Run(args []string) {
 }
 
 func printUsage() {
-	fmt.Fprint(os.Stderr, `lm-bridge — local LLM helper for Claude Code
+	fmt.Fprint(os.Stderr, `lm-bridge — LLM helper for Claude Code (LM Studio / OpenRouter)
 
 Usage:
   lm-bridge                                        open dashboard
+  lm-bridge status                                 show provider and connection status
   lm-bridge query   [--think] [--stream] <prompt>  single prompt (stdin accepted)
   lm-bridge agent   [--think] [--dir DIR] <task>   agentic loop with file tools
   lm-bridge review  [--think] [--staged]           review git diff before commit

@@ -12,6 +12,8 @@ import (
 type Call struct {
 	ID        int64
 	Mode      string
+	Provider  string
+	Model     string
 	Task      string
 	Result    string
 	Tokens    int
@@ -53,6 +55,10 @@ func migrate(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	// Migrate: add provider/model columns if they don't exist yet (ALTER TABLE ignores duplicate-column errors).
+	db.Exec(`ALTER TABLE calls ADD COLUMN provider TEXT NOT NULL DEFAULT ''`)
+	db.Exec(`ALTER TABLE calls ADD COLUMN model TEXT NOT NULL DEFAULT ''`)
+
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS settings (
 		key   TEXT PRIMARY KEY,
 		value TEXT NOT NULL DEFAULT ''
@@ -139,9 +145,9 @@ func (s *Store) SaveCall(c Call) (int64, error) {
 		c.CreatedAt = time.Now()
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO calls (mode, task, result, tokens, latency_ms, error, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		c.Mode, c.Task, c.Result, c.Tokens, c.LatencyMs, c.Error, c.CreatedAt.Unix(),
+		`INSERT INTO calls (mode, provider, model, task, result, tokens, latency_ms, error, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Mode, c.Provider, c.Model, c.Task, c.Result, c.Tokens, c.LatencyMs, c.Error, c.CreatedAt.Unix(),
 	)
 	if err != nil {
 		return 0, err
@@ -151,7 +157,7 @@ func (s *Store) SaveCall(c Call) (int64, error) {
 
 func (s *Store) RecentCalls(n int) ([]Call, error) {
 	rows, err := s.db.Query(
-		`SELECT id, mode, task, result, tokens, latency_ms, error, created_at
+		`SELECT id, mode, provider, model, task, result, tokens, latency_ms, error, created_at
 		 FROM calls ORDER BY id DESC LIMIT ?`, n,
 	)
 	if err != nil {
@@ -163,7 +169,7 @@ func (s *Store) RecentCalls(n int) ([]Call, error) {
 	for rows.Next() {
 		var c Call
 		var ts int64
-		if err := rows.Scan(&c.ID, &c.Mode, &c.Task, &c.Result, &c.Tokens, &c.LatencyMs, &c.Error, &ts); err != nil {
+		if err := rows.Scan(&c.ID, &c.Mode, &c.Provider, &c.Model, &c.Task, &c.Result, &c.Tokens, &c.LatencyMs, &c.Error, &ts); err != nil {
 			return nil, err
 		}
 		c.CreatedAt = time.Unix(ts, 0)

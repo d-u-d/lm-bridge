@@ -2,29 +2,31 @@
 
 [English](README.md) | [Русский](README.ru.md)
 
-A macOS menubar app + CLI that connects [Claude Code](https://claude.ai/claude-code) to a local LLM running in [LM Studio](https://lmstudio.ai).
+A macOS menubar app + CLI that connects [Claude Code](https://claude.ai/claude-code) to an LLM — either a local model via [LM Studio](https://lmstudio.ai) or a cloud model via [OpenRouter](https://openrouter.ai).
 
-Offload mechanical tasks (code search, boilerplate generation, transformations) to a local model — keeping Claude's context free for reasoning.
+Offload mechanical tasks (code search, boilerplate generation, transformations) to a secondary model — keeping Claude's context free for reasoning.
 
 ![lm-bridge dashboard](docs/screenshot.png)
 
 ## Features
 
 - **Menubar app** — live dashboard showing recent calls, token usage, latency, active task progress
-- **CLI** — `query`, `agent`, `review`, `explain` commands
+- **CLI** — `query`, `agent`, `review`, `explain`, `status` commands
+- **Provider settings** — switch between LM Studio (local) and OpenRouter (cloud) in the dashboard
 - **Claude Code integration** — injects usage instructions into your `CLAUDE.md` automatically
-- **Agent mode** — local model reads files via tool calls, no manual copy-paste
+- **Agent mode** — model reads files via tool calls, no manual copy-paste
 - **Code review** — review git diff before committing
 - **File explain** — get a structured explanation of any file
 - **Streaming** — `--stream` flag with loop detection (catches stuck generations)
 - **Active task tracking** — progress bar + cancel button while model is generating
-- **Busy detection** — fast pre-flight check prevents disrupting running generations
+- **Call history** — provider and model shown for every call
 
 ## Requirements
 
 - macOS (Apple Silicon recommended)
-- [LM Studio](https://lmstudio.ai) running locally
-- A loaded model (tested with Qwen3.6-35B-A3B)
+- One of:
+  - [LM Studio](https://lmstudio.ai) running locally with a loaded model
+  - [OpenRouter](https://openrouter.ai) API key (free models available)
 
 ## Installation
 
@@ -43,74 +45,38 @@ cd lm-bridge
 ./build.sh
 ```
 
-## Claude Code Integration
+## Setup
 
-lm-bridge can automatically configure Claude Code to use the local model.
+### 1. Configure provider
 
-**Enable via the dashboard:** open `lm-bridge.app`, click **Enable** next to "Claude Code Integration". This injects a usage block into `~/.claude/CLAUDE.md` — Claude will know when and how to delegate tasks to the local model.
+Open `lm-bridge.app` and click **⚙ Settings**:
 
-**Or add manually** to your `~/.claude/CLAUDE.md`:
+- **LM Studio** — set URL (default: `http://localhost:1234/v1`)
+- **OpenRouter** — paste your API key, click "Load free models", pick a model
 
-```markdown
-## Local LLM Helper (lm-bridge)
-
-A local model is available via `lm-bridge`. Always ask the user if LM Studio is running before using it.
-
-### When to delegate
-
-Delegate tasks where the result is deterministic, easy to verify, or reversible:
-- Search & collect: "find all files importing X", "list all TODO comments"
-- Boilerplate: "generate CRUD endpoints for model Y"
-- Transforms: "translate comments to English", "add JSDoc to all exports"
-- CI tasks: "run tests and return failed ones with error messages"
-
-### When NOT to delegate
-
-- Debugging non-trivial logic
-- Architectural decisions
-- Anything security-related
-- Tasks where errors are hard to detect
-
-### How to call
+### 2. Verify connection
 
 ```bash
-# Agent mode — model reads files via tool calls:
-lm-bridge agent --dir /path/to/project "task"
-
-# Simple query (stdin supported):
-lm-bridge query "request"
-cat file.txt | lm-bridge query "summarize this"
-
-# Review git diff before committing:
-lm-bridge review
-lm-bridge review --staged
-
-# Explain a file:
-lm-bridge explain path/to/file.go
-
-# Streaming with loop detection:
-lm-bridge query --stream "request"
-
-# Enable reasoning for complex tasks:
-lm-bridge agent --think --dir . "task"
+lm-bridge status
+# Provider:  openrouter
+# Model:     google/gemma-3-12b-it:free
+# Status:    ✓ ready
 ```
 
-### Concurrency
+### 3. Enable Claude Code integration (optional)
 
-LM Studio handles one request at a time. If a generation is already running — do NOT call lm-bridge, it will interrupt it.
-- Error "LM Studio is busy" — wait for the current task to finish
-- Progress is shown in the lm-bridge dashboard
-```
+In the dashboard, click **Enable** next to "Claude Code Integration". This injects a usage block into `~/.claude/CLAUDE.md` so Claude knows when and how to delegate tasks.
+
+**Trigger phrase:** say **"привлеки помощника"** to Claude — it will check status and delegate the task automatically.
 
 ## Usage
-
-### Menubar app
-
-Launch `lm-bridge.app` — it lives in the menubar. Click to open the dashboard.
 
 ### CLI
 
 ```bash
+# Check provider and connection status
+lm-bridge status
+
 # Simple query (stdin supported)
 lm-bridge query "explain this" < file.txt
 
@@ -151,21 +117,21 @@ lm-bridge review --staged
 ## How it works
 
 ```
-Claude Code  →  lm-bridge CLI  →  LM Studio (local model)
-                     ↕
-              SQLite (shared state)
+Claude Code  →  lm-bridge CLI  →  LM Studio (local)
+                     ↕               or
+              SQLite (shared)    OpenRouter (cloud)
                      ↕
               lm-bridge.app (dashboard)
 ```
 
-- CLI and GUI share a SQLite database for call history and active task state
+- CLI and GUI share a SQLite database for call history, settings, and active task state
 - Agent mode uses OpenAI-compatible tool calls for file reading
-- Dashboard polls active task every 2s, shows real-time progress from LM Studio server logs
+- Dashboard shows provider, model, and latency for every call
 
 ## Building a release
 
 ```bash
-./build.sh v1.0.0
+./build.sh v0.6.0
 # Binary: build/bin/lm-bridge.app
 ```
 

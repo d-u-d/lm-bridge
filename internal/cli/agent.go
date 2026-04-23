@@ -74,7 +74,7 @@ func runAgent(args []string) {
 	}
 
 	store, _ := db.Open()
-	client := llm.New("")
+	client := newClient(store)
 
 	if store != nil {
 		store.SetActiveTask(os.Getpid(), "agent", trunc(task, 120))
@@ -135,6 +135,8 @@ func runAgent(args []string) {
 	if store != nil {
 		store.SaveCall(db.Call{
 			Mode:      "agent",
+			Provider:  client.ProviderLabel(),
+			Model:     client.ModelLabel(),
 			Task:      trunc(task, 200),
 			Result:    trunc(finalResult, 500),
 			Tokens:    totalTokens,

@@ -74,7 +74,7 @@ func runExplain(args []string) {
 	prompt := "Explain this file (" + label + "):\n\n```\n" + content + "\n```"
 
 	store, _ := db.Open()
-	client := llm.New("")
+	client := newClient(store)
 
 	if store != nil {
 		store.SetActiveTask(os.Getpid(), "explain", label)
@@ -100,7 +100,7 @@ func runExplain(args []string) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		if store != nil {
-			store.SaveCall(db.Call{Mode: "explain", Task: label, Error: err.Error(), LatencyMs: elapsed.Milliseconds()})
+			store.SaveCall(db.Call{Mode: "explain", Provider: client.ProviderLabel(), Model: client.ModelLabel(), Task: label, Error: err.Error(), LatencyMs: elapsed.Milliseconds()})
 		}
 		os.Exit(1)
 	}
@@ -111,6 +111,8 @@ func runExplain(args []string) {
 	if store != nil {
 		store.SaveCall(db.Call{
 			Mode:      "explain",
+			Provider:  client.ProviderLabel(),
+			Model:     client.ModelLabel(),
 			Task:      label,
 			Result:    trunc(result, 500),
 			Tokens:    resp.Usage.TotalTokens,

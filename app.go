@@ -20,14 +20,15 @@ const integrationEndMarker = "<!-- lm-bridge:end -->"
 
 // integrationBlock is the CLAUDE.md section injected when integration is enabled.
 var integrationBlock = integrationStartMarker + `
-## Local LLM Helper (lm-bridge)
+## lm-bridge — помощник для делегирования задач
 
-Локальная модель Qwen3.6-35B-A3B доступна через ` + "`lm-bridge`" + `.
-**Всегда спрашивай пользователя, запущен ли LM Studio**, прежде чем использовать.
+Помощник lm-bridge доступен через ` + "`lm-bridge`" + ` CLI (поддерживает LM Studio и OpenRouter).
+
+**Триггер:** когда пользователь говорит **"привлеки помощника"** — запусти ` + "`lm-bridge status`" + ` чтобы проверить доступность, затем выполни нужные команды.
 
 ### Принцип делегирования
 
-Локальная модель — это **сборщик данных и исполнитель механической работы**.
+lm-bridge — это **сборщик данных и исполнитель механической работы**.
 Ты получаешь обратно структурированный результат и сам решаешь что с ним делать.
 Делегируй задачи где результат: детерминированный, легко проверяемый, или обратимый.
 
@@ -76,13 +77,13 @@ var integrationBlock = integrationStartMarker + `
 - **Большой контекст (~180KB+) ненадёжен** — дробить на отдельные запросы по одному объекту.
 - **Передавать файл через pipe** — ` + "`cat file.txt | lm-bridge query \"задача\"`" + `, не через agent если файл один.
 
-### Ограничения — конкуренция за модель
+### Ограничения (только для LM Studio)
 
-- **Одна задача за раз** — LM Studio обслуживает один запрос. Если уже идёт генерация — НЕ запускать lm-bridge.
-- **Ошибка "LM Studio is busy"** — дождаться завершения текущей задачи. Не ретраиться.
+- **Одна задача за раз** — если уже идёт генерация — НЕ запускать lm-bridge, это оборвёт её.
+- **Ошибка "provider busy"** — дождаться завершения текущей задачи. Не ретраиться.
 - **Фоновые задачи** — не назначать фоновые задачи с lm-bridge пока идёт длинная генерация.
 
-### Мониторинг выполнения
+### Мониторинг выполнения (LM Studio)
 
 lm-bridge выводит прогресс в stderr:
 ` + "```" + `
@@ -94,6 +95,9 @@ lm-bridge выводит прогресс в stderr:
 ### Как вызывать
 
 ` + "```" + `bash
+# Проверить провайдер и статус:
+lm-bridge status
+
 # Для задач с файлами (модель сама читает через tool calls):
 lm-bridge agent --dir /path/to/project "задача"
 
@@ -171,15 +175,30 @@ type App struct {
 	client *llm.Client
 }
 
+func clientFromSettings(store *db.Store) *llm.Client {
+	provider, _ := store.GetSetting("provider")
+	switch provider {
+	case "openrouter":
+		apiKey, _ := store.GetSetting("openrouter_api_key")
+		model, _ := store.GetSetting("openrouter_model")
+		return llm.New("", apiKey, model)
+	default: // "lmstudio" or empty
+		baseURL, _ := store.GetSetting("lmstudio_url")
+		return llm.New(baseURL, "", "")
+	}
+}
+
 func NewApp(store *db.Store) *App {
 	return &App{
 		store:  store,
-		client: llm.New(""),
+		client: clientFromSettings(store),
 	}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	go a.watchDB()
 
 	enabled := a.GetIntegrationEnabled()
 	icon := tray.MakeIcon()
@@ -203,6 +222,8 @@ func (a *App) startup(ctx context.Context) {
 type CallRecord struct {
 	ID        int64  `json:"id"`
 	Mode      string `json:"mode"`
+	Provider  string `json:"provider"`
+	Model     string `json:"model"`
 	Task      string `json:"task"`
 	Result    string `json:"result"`
 	Tokens    int    `json:"tokens"`
@@ -232,6 +253,58 @@ func (a *App) GetModelInfo() ModelInfo {
 	return ModelInfo{Online: online, ModelName: name}
 }
 
+// ProviderConfig holds all provider-related settings.
+type ProviderConfig struct {
+	Provider         string `json:"provider"`
+	LMStudioURL      string `json:"lmstudio_url"`
+	OpenRouterAPIKey string `json:"openrouter_api_key"`
+	OpenRouterModel  string `json:"openrouter_model"`
+}
+
+func (a *App) GetProviderConfig() ProviderConfig {
+	provider, _ := a.store.GetSetting("provider")
+	if provider == "" {
+		provider = "lmstudio"
+	}
+	lmURL, _ := a.store.GetSetting("lmstudio_url")
+	orKey, _ := a.store.GetSetting("openrouter_api_key")
+	orModel, _ := a.store.GetSetting("openrouter_model")
+	return ProviderConfig{
+		Provider:         provider,
+		LMStudioURL:      lmURL,
+		OpenRouterAPIKey: orKey,
+		OpenRouterModel:  orModel,
+	}
+}
+
+func (a *App) SaveProviderConfig(cfg ProviderConfig) error {
+	if err := a.store.SetSetting("provider", cfg.Provider); err != nil {
+		return err
+	}
+	if err := a.store.SetSetting("lmstudio_url", cfg.LMStudioURL); err != nil {
+		return err
+	}
+	if err := a.store.SetSetting("openrouter_api_key", cfg.OpenRouterAPIKey); err != nil {
+		return err
+	}
+	if err := a.store.SetSetting("openrouter_model", cfg.OpenRouterModel); err != nil {
+		return err
+	}
+	a.client = clientFromSettings(a.store)
+	return nil
+}
+
+func (a *App) GetOpenRouterFreeModels() []string {
+	apiKey, _ := a.store.GetSetting("openrouter_api_key")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	models, err := llm.FetchFreeModels(ctx, apiKey)
+	if err != nil {
+		return []string{}
+	}
+	return models
+}
+
 func (a *App) GetRecentCalls() []CallRecord {
 	calls, _ := a.store.RecentCalls(50)
 	out := make([]CallRecord, len(calls))
@@ -239,6 +312,8 @@ func (a *App) GetRecentCalls() []CallRecord {
 		out[i] = CallRecord{
 			ID:        c.ID,
 			Mode:      c.Mode,
+			Provider:  c.Provider,
+			Model:     c.Model,
 			Task:      c.Task,
 			Result:    c.Result,
 			Tokens:    c.Tokens,
@@ -306,6 +381,26 @@ func (a *App) CancelActiveTask() error {
 		return err
 	}
 	return proc.Signal(syscall.SIGTERM)
+}
+
+// watchDB watches the SQLite file for modifications by CLI processes and
+// emits "calls:updated" so the frontend reloads without polling.
+func (a *App) watchDB() {
+	dbPath := filepath.Join(os.Getenv("HOME"), ".lm-bridge", "history.db")
+	var lastMod time.Time
+	for {
+		time.Sleep(500 * time.Millisecond)
+		fi, err := os.Stat(dbPath)
+		if err != nil {
+			continue
+		}
+		if fi.ModTime().After(lastMod) {
+			lastMod = fi.ModTime()
+			if a.ctx != nil {
+				runtime.EventsEmit(a.ctx, "calls:updated")
+			}
+		}
+	}
 }
 
 func (a *App) GetVersion() string {

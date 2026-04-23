@@ -69,7 +69,7 @@ func runReview(args []string) {
 	prompt := "Review this diff:\n\n```diff\n" + diff + "\n```"
 
 	store, _ := db.Open()
-	client := llm.New("")
+	client := newClient(store)
 
 	if store != nil {
 		store.SetActiveTask(os.Getpid(), "review", "code review")
@@ -95,7 +95,7 @@ func runReview(args []string) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		if store != nil {
-			store.SaveCall(db.Call{Mode: "review", Task: "code review", Error: err.Error(), LatencyMs: elapsed.Milliseconds()})
+			store.SaveCall(db.Call{Mode: "review", Provider: client.ProviderLabel(), Model: client.ModelLabel(), Task: "code review", Error: err.Error(), LatencyMs: elapsed.Milliseconds()})
 		}
 		os.Exit(1)
 	}
@@ -106,6 +106,8 @@ func runReview(args []string) {
 	if store != nil {
 		store.SaveCall(db.Call{
 			Mode:      "review",
+			Provider:  client.ProviderLabel(),
+			Model:     client.ModelLabel(),
 			Task:      "code review",
 			Result:    trunc(result, 500),
 			Tokens:    resp.Usage.TotalTokens,

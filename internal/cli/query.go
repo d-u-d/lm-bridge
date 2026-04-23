@@ -13,6 +13,7 @@ import (
 	"lm-bridge/internal/llm"
 )
 
+
 func runQuery(args []string) {
 	fs := flag.NewFlagSet("query", flag.ExitOnError)
 	think  := fs.Bool("think", false, "enable chain-of-thought reasoning")
@@ -41,7 +42,7 @@ func runQuery(args []string) {
 	}
 
 	store, _ := db.Open()
-	client := llm.New("")
+	client := newClient(store)
 
 	if store != nil {
 		store.SetActiveTask(os.Getpid(), "query", trunc(prompt, 120))
@@ -70,6 +71,8 @@ func runQuery(args []string) {
 		if store != nil {
 			store.SaveCall(db.Call{
 				Mode:      "query",
+				Provider:  client.ProviderLabel(),
+				Model:     client.ModelLabel(),
 				Task:      trunc(prompt, 200),
 				Error:     errMsg,
 				LatencyMs: elapsed.Milliseconds(),
@@ -93,6 +96,8 @@ func runQuery(args []string) {
 		if store != nil {
 			store.SaveCall(db.Call{
 				Mode:      "query",
+				Provider:  client.ProviderLabel(),
+				Model:     client.ModelLabel(),
 				Task:      trunc(prompt, 200),
 				Error:     err.Error(),
 				LatencyMs: elapsed.Milliseconds(),
@@ -107,6 +112,8 @@ func runQuery(args []string) {
 	if store != nil {
 		store.SaveCall(db.Call{
 			Mode:      "query",
+			Provider:  client.ProviderLabel(),
+			Model:     client.ModelLabel(),
 			Task:      trunc(prompt, 200),
 			Result:    trunc(result, 500),
 			Tokens:    resp.Usage.TotalTokens,

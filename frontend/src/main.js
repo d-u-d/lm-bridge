@@ -1,7 +1,8 @@
 import './style.css';
 import './app.css';
 
-import { GetModelInfo, GetRecentCalls, GetStats, GetIntegrationEnabled, SetIntegration, GetActiveTask, CancelActiveTask, GetVersion } from '../wailsjs/go/main/App';
+import { GetModelInfo, GetRecentCalls, GetStats, GetIntegrationEnabled, SetIntegration, GetActiveTask, CancelActiveTask, GetVersion, GetProviderConfig, SaveProviderConfig, GetOpenRouterFreeModels } from '../wailsjs/go/main/App';
+import { EventsOn } from '../wailsjs/runtime/runtime';
 
 // ── helpers ──────────────────────────────────────────────────
 
@@ -19,7 +20,22 @@ function isSlowMs(ms) {
   return ms > 5000;
 }
 
-// ── render ───────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escAttr(s) {
+  return escHtml(s).replace(/"/g, '&quot;');
+}
+
+// ── view state ───────────────────────────────────────────────
+
+let currentView = 'dashboard';
+
+// ── render dashboard ─────────────────────────────────────────
 
 function renderApp(modelInfo, calls, stats, integrationEnabled) {
   const statusDot  = modelInfo.online ? 'online' : 'offline';
@@ -38,6 +54,7 @@ function renderApp(modelInfo, calls, stats, integrationEnabled) {
         <span style="color:var(--muted)">${statusText}</span>
       </div>
       <button class="refresh-btn" id="refreshBtn">↻ Refresh</button>
+      <button class="refresh-btn" id="settingsBtn">⚙ Settings</button>
     </div>
 
     <div id="activeTaskBar" class="active-task-bar" style="display:none"></div>
@@ -78,6 +95,7 @@ function renderApp(modelInfo, calls, stats, integrationEnabled) {
     <div class="cols-header">
       <span>Time</span>
       <span>Mode</span>
+      <span>Model</span>
       <span>Task</span>
       <span style="text-align:right">Latency</span>
       <span style="text-align:right">Tokens</span>
@@ -92,6 +110,10 @@ function renderApp(modelInfo, calls, stats, integrationEnabled) {
   `;
 
   document.getElementById('refreshBtn').addEventListener('click', load);
+  document.getElementById('settingsBtn').addEventListener('click', () => {
+    currentView = 'settings';
+    renderSettingsView();
+  });
 
   document.getElementById('integrationToggle').addEventListener('click', async () => {
     await SetIntegration(!integrationEnabled);
@@ -114,11 +136,16 @@ function renderRow(c) {
   const taskClass = ok ? '' : 'error';
   const taskText  = ok ? escHtml(c.task) : `✗ ${escHtml(c.error || c.task)}`;
   const latClass  = isSlowMs(c.latency_ms) ? 'slow' : '';
+  const modelShort = c.model ? shortModelName(c.model) : '—';
+  const providerClass = c.provider === 'openrouter' ? 'or' : 'lm';
 
   return `
     <div class="call-row" title="${escAttr(c.task)}">
       <span class="call-time">${escHtml(c.time)}</span>
       <span class="badge ${escHtml(c.mode)}">${escHtml(c.mode)}</span>
+      <span class="call-model" title="${escAttr(c.model)}">
+        <span class="provider-dot ${providerClass}"></span>${escHtml(modelShort)}
+      </span>
       <span class="call-task ${taskClass}">${taskText}</span>
       <span class="call-latency ${latClass}">${fmtLatency(c.latency_ms)}</span>
       <span class="call-tokens">${fmtTokens(c.tokens)}</span>
@@ -134,15 +161,146 @@ function shortModelName(name) {
   return base.replace(/[-_](GGUF|gguf|Q\d.*|q\d.*|fp\d.*).*$/, '').substring(0, 40);
 }
 
-function escHtml(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
+// ── render settings ──────────────────────────────────────────
 
-function escAttr(s) {
-  return escHtml(s).replace(/"/g, '&quot;');
+async function renderSettingsView() {
+  let cfg = { provider: 'lmstudio', lmstudio_url: '', openrouter_api_key: '', openrouter_model: '' };
+  try { cfg = await GetProviderConfig(); } catch (_) {}
+
+  const isOR = cfg.provider === 'openrouter';
+
+  document.getElementById('app').innerHTML = `
+    <div class="header">
+      <button class="back-btn" id="backBtn">← Back</button>
+      <span class="header-sep"></span>
+      <span class="header-title" style="color:var(--muted)">Settings</span>
+    </div>
+
+    <div class="settings-panel">
+      <div class="settings-group">
+        <span class="settings-label">Provider</span>
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="provider" value="lmstudio" ${!isOR ? 'checked' : ''}>
+            <span class="radio-text">
+              <span class="radio-title">LM Studio</span>
+              <span class="radio-desc">Local model, runs offline</span>
+            </span>
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="provider" value="openrouter" ${isOR ? 'checked' : ''}>
+            <span class="radio-text">
+              <span class="radio-title">OpenRouter</span>
+              <span class="radio-desc">Cloud API, free models available</span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-group" id="lmstudio-group" ${isOR ? 'style="display:none"' : ''}>
+        <label class="settings-label" for="lmstudio-url">LM Studio URL</label>
+        <input class="settings-input" type="text" id="lmstudio-url"
+               value="${escAttr(cfg.lmstudio_url)}"
+               placeholder="http://localhost:1234/v1">
+      </div>
+
+      <div class="settings-group" id="openrouter-group" ${!isOR ? 'style="display:none"' : ''}>
+        <label class="settings-label" for="or-api-key">API Key</label>
+        <input class="settings-input" type="password" id="or-api-key"
+               value="${escAttr(cfg.openrouter_api_key)}"
+               placeholder="sk-or-v1-...">
+
+        <label class="settings-label" style="margin-top:12px">Model</label>
+        <div class="model-row">
+          <select class="settings-select" id="or-model">
+            ${cfg.openrouter_model
+              ? `<option value="${escAttr(cfg.openrouter_model)}" selected>${escHtml(cfg.openrouter_model)}</option>`
+              : `<option value="">— select a model —</option>`}
+          </select>
+          <button class="load-btn" id="loadModelsBtn">Load free models</button>
+        </div>
+      </div>
+
+      <div class="settings-footer">
+        <button class="save-btn" id="saveBtn">Save</button>
+        <span class="save-status" id="saveStatus"></span>
+      </div>
+    </div>
+
+    <div class="footer" id="version">…</div>
+  `;
+
+  const el = document.getElementById('version');
+  if (el) el.textContent = appVersion;
+
+  document.getElementById('backBtn').addEventListener('click', () => {
+    currentView = 'dashboard';
+    load();
+  });
+
+  // Show/hide provider-specific sections
+  document.querySelectorAll('input[name="provider"]').forEach(r => {
+    r.addEventListener('change', () => {
+      const sel = document.querySelector('input[name="provider"]:checked').value;
+      document.getElementById('lmstudio-group').style.display = sel === 'openrouter' ? 'none' : 'block';
+      document.getElementById('openrouter-group').style.display = sel === 'openrouter' ? 'block' : 'none';
+    });
+  });
+
+  document.getElementById('loadModelsBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('loadModelsBtn');
+    btn.disabled = true;
+    btn.textContent = 'Loading…';
+
+    // Temporarily save the key so backend can use it for the request
+    const key = document.getElementById('or-api-key').value.trim();
+    try {
+      await SaveProviderConfig({
+        provider: 'openrouter',
+        lmstudio_url: document.getElementById('lmstudio-url').value.trim(),
+        openrouter_api_key: key,
+        openrouter_model: document.getElementById('or-model').value,
+      });
+    } catch (_) {}
+
+    try {
+      const models = (await GetOpenRouterFreeModels()) || [];
+      const select = document.getElementById('or-model');
+      const current = select.value;
+      if (models.length === 0) {
+        select.innerHTML = `<option value="">No free models found</option>`;
+      } else {
+        select.innerHTML = models.map(m =>
+          `<option value="${escAttr(m)}" ${m === current ? 'selected' : ''}>${escHtml(m)}</option>`
+        ).join('');
+      }
+    } catch (e) {
+      const select = document.getElementById('or-model');
+      select.innerHTML = `<option value="">Error: ${escHtml(String(e))}</option>`;
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Load free models';
+  });
+
+  document.getElementById('saveBtn').addEventListener('click', async () => {
+    const provider = document.querySelector('input[name="provider"]:checked').value;
+    try {
+      await SaveProviderConfig({
+        provider,
+        lmstudio_url: document.getElementById('lmstudio-url').value.trim(),
+        openrouter_api_key: document.getElementById('or-api-key').value.trim(),
+        openrouter_model: document.getElementById('or-model').value,
+      });
+      const s = document.getElementById('saveStatus');
+      s.textContent = 'Saved ✓';
+      setTimeout(() => { s.textContent = ''; }, 2000);
+    } catch (e) {
+      const s = document.getElementById('saveStatus');
+      s.textContent = 'Error: ' + String(e);
+      s.style.color = 'var(--red)';
+    }
+  });
 }
 
 // ── load & bootstrap ─────────────────────────────────────────
@@ -150,6 +308,10 @@ function escAttr(s) {
 let appVersion = '…';
 
 async function load() {
+  if (currentView === 'settings') {
+    await renderSettingsView();
+    return;
+  }
   try {
     const [modelInfo, calls, stats, integrationEnabled] = await Promise.all([
       GetModelInfo(),
@@ -223,3 +385,8 @@ function stopTaskPolling() {
 // Запускаем polling при открытии окна
 startTaskPolling();
 pollActiveTask();
+
+// Instant refresh when CLI writes a new call to the DB
+EventsOn('calls:updated', () => {
+  if (currentView === 'dashboard') load();
+});
